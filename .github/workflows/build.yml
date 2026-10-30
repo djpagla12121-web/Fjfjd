@@ -7,29 +7,31 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    runs-on: ubuntu-20.04
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool \
-            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev
+          # libtinfo5 optional on 20.04
+          sudo apt install -y libtinfo5 || sudo apt install -y libtinfo6
 
       - name: Install buildozer
         run: |
           pip install --upgrade pip
-          pip install buildozer cython
+          pip install buildozer cython==0.29.36
 
       - name: Create buildozer.spec
         run: |
@@ -41,22 +43,23 @@ jobs:
           source.dir = .
           source.include_exts = py,png,jpg,kv,atlas,ttf
           version = 1.0
-          requirements = python3,kivy,requests,urllib3,certifi,chardet,idna,pyjnius,android
+          requirements = python3,kivy==2.2.1,requests,urllib3,certifi,chardet,idna,pyjnius,android
           orientation = portrait
           fullscreen = 0
           android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
-          android.api = 33
+          android.api = 31
           android.minapi = 21
-          android.ndk = 25b
+          android.ndk = 23b
           android.archs = arm64-v8a, armeabi-v7a
           android.allow_backup = True
           android.accept_sdk_license = True
+          android.accept_android_sdk_license = True
 
           [buildozer]
           log_level = 2
           warn_on_root = 1
           SPECEOF
-          echo "===== buildozer.spec created ====="
+          echo "===== buildozer.spec ====="
           cat buildozer.spec
 
       - name: Verify files
@@ -67,21 +70,29 @@ jobs:
           test -f fb_login.py && echo "✓ fb_login.py OK" || (echo "✘ fb_login.py missing"; exit 1)
           test -f buildozer.spec && echo "✓ buildozer.spec OK" || (echo "✘ spec missing"; exit 1)
 
+      - name: Accept Android licenses
+        run: |
+          mkdir -p ~/.android
+          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.android/android-sdk-license
+          echo -e "8933bad161af4178b1185d1a37fbf41ea5269c55" >> ~/.android/android-sdk-license
+          echo -e "d56f5187479451eabf01fb78af6dfcb131a6481e" >> ~/.android/android-sdk-license
+
       - name: Build APK
         run: |
-          yes | buildozer -v android debug
+          yes | buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: fb-login-apk
           path: bin/*.apk
+          if-no-files-found: warn
           retention-days: 30
-
-      - name: Upload build logs (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: .buildozer/**/*.log
-          retention-days: 7
