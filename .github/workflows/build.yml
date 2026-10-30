@@ -1,0 +1,87 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool \
+            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            cmake libffi-dev libssl-dev
+
+      - name: Install buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython
+
+      - name: Create buildozer.spec
+        run: |
+          cat > buildozer.spec << 'SPECEOF'
+          [app]
+          title = FB Login Tool
+          package.name = fblogin
+          package.domain = com.fblogin
+          source.dir = .
+          source.include_exts = py,png,jpg,kv,atlas,ttf
+          version = 1.0
+          requirements = python3,kivy,requests,urllib3,certifi,chardet,idna,pyjnius,android
+          orientation = portrait
+          fullscreen = 0
+          android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
+          android.api = 33
+          android.minapi = 21
+          android.ndk = 25b
+          android.archs = arm64-v8a, armeabi-v7a
+          android.allow_backup = True
+          android.accept_sdk_license = True
+
+          [buildozer]
+          log_level = 2
+          warn_on_root = 1
+          SPECEOF
+          echo "===== buildozer.spec created ====="
+          cat buildozer.spec
+
+      - name: Verify files
+        run: |
+          echo "Files in repo:"
+          ls -la
+          test -f main.py && echo "✓ main.py OK" || (echo "✘ main.py missing"; exit 1)
+          test -f fb_login.py && echo "✓ fb_login.py OK" || (echo "✘ fb_login.py missing"; exit 1)
+          test -f buildozer.spec && echo "✓ buildozer.spec OK" || (echo "✘ spec missing"; exit 1)
+
+      - name: Build APK
+        run: |
+          yes | buildozer -v android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fb-login-apk
+          path: bin/*.apk
+          retention-days: 30
+
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: .buildozer/**/*.log
+          retention-days: 7
